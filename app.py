@@ -22,16 +22,35 @@ def get_sheet():
     return sheet
 
 
+def normalize(text):
+    """Makes header matching forgiving of extra spaces/capitalization."""
+    return text.strip().upper()
+
+
+def find_column(header, target_name):
+    normalized_header = [normalize(h) for h in header]
+    return normalized_header.index(normalize(target_name))
+
+
 def find_item_row(sheet, item_number):
     """Returns (row_number, row_values) for the given item number, or (None, None)."""
     all_values = sheet.get_all_values()
     header = all_values[0]
-    item_col = header.index("ITEM NUMBER")
+    item_col = find_column(header, "ITEM NUMBER")
 
     for i, row in enumerate(all_values[1:], start=2):  # row 1 is header
         if row[item_col].strip() == str(item_number).strip():
             return i, row, header
     return None, None, header
+
+
+def get_locations(row, header):
+    """Returns a list of every non-empty location value, starting at the
+    LOCATION column and continuing through any extra location columns to
+    the right of it (D, E, F... K, etc)."""
+    loc_start_col = find_column(header, "LOCATION")
+    locations = [cell.strip() for cell in row[loc_start_col:] if cell.strip()]
+    return locations
 
 
 @app.route("/")
@@ -51,13 +70,13 @@ def lookup():
     if row_num is None:
         return jsonify({"error": f"Item {item_number} not found"}), 404
 
-    qty_col = header.index("QUANTITY")
-    loc_col = header.index("LOCATION")
+    qty_col = find_column(header, "QUANTITY")
+    locations = get_locations(row, header)
 
     return jsonify({
         "item": item_number,
         "quantity": row[qty_col],
-        "location": row[loc_col]
+        "location": ", ".join(locations)
     })
 
 
@@ -81,8 +100,8 @@ def take():
     if row_num is None:
         return jsonify({"error": f"Item {item_number} not found"}), 404
 
-    qty_col = header.index("QUANTITY")
-    loc_col = header.index("LOCATION")
+    qty_col = find_column(header, "QUANTITY")
+    locations = get_locations(row, header)
 
     current_qty = int(row[qty_col])
 
@@ -98,7 +117,7 @@ def take():
 
     return jsonify({
         "item": item_number,
-        "location": row[loc_col],
+        "location": ", ".join(locations),
         "previous_quantity": current_qty,
         "taken": take_amount,
         "new_quantity": new_qty
