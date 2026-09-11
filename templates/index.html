@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventory Check</title>
+<style>
+  :root {
+    --charcoal: #1c1e1f;
+    --panel: #26292a;
+    --amber: #f2a900;
+    --off-white: #e9e6df;
+    --dim: #9a9d9e;
+    --danger: #c4453a;
+    --ok: #5c8f5c;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--charcoal);
+    color: var(--off-white);
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+
+  main {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  h1 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--dim);
+    margin: 0 0 24px;
+  }
+
+  .field {
+    margin-bottom: 16px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--dim);
+    margin-bottom: 6px;
+  }
+
+  input {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.4rem;
+    font-family: "Courier New", monospace;
+    background: var(--panel);
+    border: 1px solid #3a3d3e;
+    border-radius: 4px;
+    color: var(--off-white);
+  }
+
+  input:focus {
+    outline: none;
+    border-color: var(--amber);
+  }
+
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 1rem;
+    font-weight: 600;
+    background: var(--amber);
+    color: #1c1e1f;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+
+  button:disabled {
+    background: #555;
+    color: #999;
+    cursor: not-allowed;
+  }
+
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+  }
+
+  .result {
+    background: var(--panel);
+    border-radius: 4px;
+    padding: 20px;
+    margin-top: 24px;
+    display: none;
+  }
+
+  .result.show { display: block; }
+
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px solid #3a3d3e;
+  }
+
+  .result-row:last-child { border-bottom: none; }
+
+  .result-label {
+    color: var(--dim);
+    font-size: 0.85rem;
+  }
+
+  .result-value {
+    font-family: "Courier New", monospace;
+    font-size: 1.3rem;
+  }
+
+  .qty-low { color: var(--danger); }
+
+  .take-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #3a3d3e;
+  }
+
+  .message {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    display: none;
+  }
+
+  .message.show { display: block; }
+  .message.error { background: rgba(196,69,58,0.15); color: #e08a80; }
+  .message.success { background: rgba(92,143,92,0.15); color: #9fc99f; }
+</style>
+</head>
+<body>
+<main>
+  <h1>WAREHOUSE INVENTORY</h1>
+
+  <div class="field">
+    <label for="itemInput">Item number</label>
+    <input type="text" id="itemInput" placeholder="e.g. 1234" autofocus>
+  </div>
+  <button id="lookupBtn">Check stock</button>
+
+  <div id="result" class="result">
+    <div class="result-row">
+      <span class="result-label">Location</span>
+      <span class="result-value" id="resultLocation">—</span>
+    </div>
+    <div class="result-row">
+      <span class="result-label">Quantity left</span>
+      <span class="result-value" id="resultQty">—</span>
+    </div>
+
+    <div class="take-section">
+      <div class="field">
+        <label for="takeInput">Taking how many?</label>
+        <input type="number" id="takeInput" min="1" placeholder="e.g. 2">
+      </div>
+      <button id="takeBtn" class="secondary">Update inventory</button>
+    </div>
+  </div>
+
+  <div id="message" class="message"></div>
+</main>
+
+<script>
+  let currentItem = null;
+
+  const itemInput = document.getElementById('itemInput');
+  const takeInput = document.getElementById('takeInput');
+  const lookupBtn = document.getElementById('lookupBtn');
+  const takeBtn = document.getElementById('takeBtn');
+  const result = document.getElementById('result');
+  const resultLocation = document.getElementById('resultLocation');
+  const resultQty = document.getElementById('resultQty');
+  const message = document.getElementById('message');
+
+  function showMessage(text, type) {
+    message.textContent = text;
+    message.className = 'message show ' + type;
+  }
+
+  function clearMessage() {
+    message.className = 'message';
+  }
+
+  function updateResultDisplay(location, qty) {
+    resultLocation.textContent = location;
+    resultQty.textContent = qty;
+    resultQty.className = 'result-value' + (qty <= 5 ? ' qty-low' : '');
+    result.classList.add('show');
+  }
+
+  async function lookupItem() {
+    const item = itemInput.value.trim();
+    if (!item) return;
+
+    clearMessage();
+    lookupBtn.disabled = true;
+    lookupBtn.textContent = 'Checking...';
+
+    try {
+      const res = await fetch('/lookup?item=' + encodeURIComponent(item));
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMessage(data.error || 'Something went wrong', 'error');
+        result.classList.remove('show');
+      } else {
+        currentItem = item;
+        updateResultDisplay(data.location, data.quantity);
+        takeInput.value = '';
+      }
+    } catch (err) {
+      showMessage('Could not reach the server', 'error');
+    } finally {
+      lookupBtn.disabled = false;
+      lookupBtn.textContent = 'Check stock';
+    }
+  }
+
+  async function takeItems() {
+    const takeAmount = takeInput.value.trim();
+    if (!takeAmount || !currentItem) return;
+
+    clearMessage();
+    takeBtn.disabled = true;
+    takeBtn.textContent = 'Updating...';
+
+    try {
+      const res = await fetch('/take', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: currentItem, take: takeAmount })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMessage(data.error || 'Something went wrong', 'error');
+      } else {
+        updateResultDisplay(data.location, data.new_quantity);
+        takeInput.value = '';
+        showMessage(
+          'Took ' + data.taken + '. ' + data.new_quantity + ' left of item ' + data.item + '.',
+          'success'
+        );
+      }
+    } catch (err) {
+      showMessage('Could not reach the server', 'error');
+    } finally {
+      takeBtn.disabled = false;
+      takeBtn.textContent = 'Update inventory';
+    }
+  }
+
+  lookupBtn.addEventListener('click', lookupItem);
+  takeBtn.addEventListener('click', takeItems);
+  itemInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupItem(); });
+  takeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') takeItems(); });
+</script>
+</body>
+</html>
