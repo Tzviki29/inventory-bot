@@ -9,7 +9,7 @@ app = Flask(__name__)
 # ---- Google Sheets connection ----
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-SPREADSHEET_ID = "1-zemjSkWCOdOh-Q4Q6_i2QR1sN1p5zd3"
+SPREADSHEET_ID = "1gU5rS84PH0PFBZPOlobFF4kra8F_I2S0FqNhiasc4_8"
 
 def get_sheet():
     # The credentials JSON is stored as an environment variable on Render
