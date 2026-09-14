@@ -53,6 +53,24 @@ def get_locations(row, header):
     return locations
 
 
+def write_locations(sheet, row_num, header, new_locations):
+    """Writes a full list of locations back into the LOCATION column(s),
+    clearing out any leftover old values in columns that are no longer used."""
+    loc_start_col = find_column(header, "LOCATION")
+    num_location_slots = len(header) - loc_start_col
+
+    if len(new_locations) > num_location_slots:
+        raise ValueError(
+            f"Too many locations — the sheet only has room for {num_location_slots}."
+        )
+
+    for offset in range(num_location_slots):
+        # gspread columns/rows are 1-indexed
+        col_num = loc_start_col + offset + 1
+        value = new_locations[offset] if offset < len(new_locations) else ""
+        sheet.update_cell(row_num, col_num, value)
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -72,10 +90,12 @@ def lookup():
 
     qty_col = find_column(header, "QUANTITY")
     locations = get_locations(row, header)
+    quantity = int(row[qty_col])
 
     return jsonify({
         "item": item_number,
-        "quantity": row[qty_col],
+        "quantity": quantity,
+        "out_of_stock": quantity <= 0,
         "location": ", ".join(locations)
     })
 
@@ -121,6 +141,63 @@ def take():
         "previous_quantity": current_qty,
         "taken": take_amount,
         "new_quantity": new_qty
+    })
+
+
+@app.route("/relocate", methods=["POST"])
+def relocate():
+    data = request.get_json()
+    item_number = str(data.get("item", "")).strip()
+    action = data.get("action")  # "replace", "add", or "clear"
+
+    if not item_number or not action:
+        return jsonify({"error": "Missing item number or action"}), 400
+
+    sheet = get_sheet()
+    row_num, row, header = find_item_row(sheet, item_number)
+
+    if row_num is None:
+        return jsonify({"error": f"Item {item_number} not found"}), 404
+
+    current_locations = get_locations(row, header)
+
+    if action == "replace":
+        old_location = str(data.get("old_location", "")).strip()
+        new_location = str(data.get("new_location", "")).strip()
+        if not old_location or not new_location:
+            return jsonify({"error": "Missing old or new location"}), 400
+        if old_location not in current_locations:
+            return jsonify({"error": f"'{old_location}' is not a current location for this item"}), 400
+        new_locations = [
+            new_location if loc == old_location else loc
+            for loc in current_locations
+        ]
+
+    elif action == "add":
+        new_location = str(data.get("new_location", "")).strip()
+        if not new_location:
+            return jsonify({"error": "Missing new location"}), 400
+        if new_location in current_locations:
+            return jsonify({"error": f"Item is already listed at '{new_location}'"}), 400
+        new_locations = current_locations + [new_location]
+
+    elif action == "clear":
+        new_location = str(data.get("new_location", "")).strip()
+        if not new_location:
+            return jsonify({"error": "Missing new location"}), 400
+        new_locations = [new_location]
+
+    else:
+        return jsonify({"error": f"Unknown action '{action}'"}), 400
+
+    try:
+        write_locations(sheet, row_num, header, new_locations)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({
+        "item": item_number,
+        "location": ", ".join(new_locations)
     })
 
 
