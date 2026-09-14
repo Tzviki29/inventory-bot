@@ -222,6 +222,12 @@
         <input type="number" id="takeInput" min="1" placeholder="e.g. 2">
       </div>
       <button id="takeBtn" class="secondary">Update inventory</button>
+
+      <div class="field" style="margin-top: 16px;">
+        <label for="addInput">Adding how many? (restocking)</label>
+        <input type="number" id="addInput" min="1" placeholder="e.g. 10">
+      </div>
+      <button id="addBtn" class="secondary">Add to inventory</button>
     </div>
 
     <div class="relocate-section">
@@ -270,8 +276,10 @@
 
   const itemInput = document.getElementById('itemInput');
   const takeInput = document.getElementById('takeInput');
+  const addInput = document.getElementById('addInput');
   const lookupBtn = document.getElementById('lookupBtn');
   const takeBtn = document.getElementById('takeBtn');
+  const addBtn = document.getElementById('addBtn');
   const result = document.getElementById('result');
   const resultLocation = document.getElementById('resultLocation');
   const resultQty = document.getElementById('resultQty');
@@ -377,6 +385,40 @@
     }
   }
 
+  async function addStockItems() {
+    const addAmount = addInput.value.trim();
+    if (!addAmount || !currentItem) return;
+
+    clearMessage();
+    addBtn.disabled = true;
+    addBtn.textContent = 'Updating...';
+
+    try {
+      const res = await fetch('/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: currentItem, add: addAmount })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMessage(data.error || 'Something went wrong', 'error');
+      } else {
+        updateResultDisplay(data.location, data.new_quantity);
+        addInput.value = '';
+        showMessage(
+          'Added ' + data.added + '. ' + data.new_quantity + ' now in stock for item ' + data.item + '.',
+          'success'
+        );
+      }
+    } catch (err) {
+      showMessage('Could not reach the server', 'error');
+    } finally {
+      addBtn.disabled = false;
+      addBtn.textContent = 'Add to inventory';
+    }
+  }
+
   async function relocateItem() {
     if (!currentItem) return;
 
@@ -429,9 +471,11 @@
 
   lookupBtn.addEventListener('click', lookupItem);
   takeBtn.addEventListener('click', takeItems);
+  addBtn.addEventListener('click', addStockItems);
   relocateBtn.addEventListener('click', relocateItem);
   itemInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupItem(); });
   takeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') takeItems(); });
+  addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addStockItems(); });
 </script>
 </body>
 </html>
