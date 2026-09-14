@@ -144,6 +144,47 @@ def take():
     })
 
 
+@app.route("/add", methods=["POST"])
+def add_stock():
+    data = request.get_json()
+    item_number = str(data.get("item", "")).strip()
+    add_amount = data.get("add")
+
+    if not item_number or add_amount is None:
+        return jsonify({"error": "Missing item number or amount"}), 400
+
+    try:
+        add_amount = int(add_amount)
+    except ValueError:
+        return jsonify({"error": "Amount added must be a number"}), 400
+
+    if add_amount <= 0:
+        return jsonify({"error": "Amount added must be greater than 0"}), 400
+
+    sheet = get_sheet()
+    row_num, row, header = find_item_row(sheet, item_number)
+
+    if row_num is None:
+        return jsonify({"error": f"Item {item_number} not found"}), 404
+
+    qty_col = find_column(header, "QUANTITY")
+    locations = get_locations(row, header)
+
+    current_qty = int(row[qty_col])
+    new_qty = current_qty + add_amount
+
+    # gspread columns are 1-indexed, so add 1
+    sheet.update_cell(row_num, qty_col + 1, new_qty)
+
+    return jsonify({
+        "item": item_number,
+        "location": ", ".join(locations),
+        "previous_quantity": current_qty,
+        "added": add_amount,
+        "new_quantity": new_qty
+    })
+
+
 @app.route("/relocate", methods=["POST"])
 def relocate():
     data = request.get_json()
