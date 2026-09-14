@@ -124,6 +124,57 @@
   }
 
   .qty-low { color: var(--danger); }
+  .out-of-stock {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--danger);
+  }
+
+  .relocate-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #3a3d3e;
+  }
+
+  select {
+    width: 100%;
+    padding: 14px;
+    font-size: 1rem;
+    background: var(--panel);
+    border: 1px solid #3a3d3e;
+    border-radius: 4px;
+    color: var(--off-white);
+  }
+
+  .action-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .action-tab {
+    flex: 1;
+    padding: 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--charcoal);
+    border: 1px solid #3a3d3e;
+    border-radius: 4px;
+    color: var(--dim);
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .action-tab.active {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  .relocate-fields { display: none; }
+  .relocate-fields.active { display: block; }
 
   .take-section {
     margin-top: 20px;
@@ -163,6 +214,7 @@
       <span class="result-label">Quantity left</span>
       <span class="result-value" id="resultQty">—</span>
     </div>
+    <div id="outOfStockBadge" class="out-of-stock" style="display:none;">OUT OF STOCK</div>
 
     <div class="take-section">
       <div class="field">
@@ -171,6 +223,42 @@
       </div>
       <button id="takeBtn" class="secondary">Update inventory</button>
     </div>
+
+    <div class="relocate-section">
+      <label>Relocate item</label>
+      <div class="action-tabs">
+        <div class="action-tab active" data-action="replace">Replace one</div>
+        <div class="action-tab" data-action="add">Add new</div>
+        <div class="action-tab" data-action="clear">Clear & set</div>
+      </div>
+
+      <div class="relocate-fields active" id="fields-replace">
+        <div class="field">
+          <label for="oldLocationSelect">Current location to replace</label>
+          <select id="oldLocationSelect"></select>
+        </div>
+        <div class="field">
+          <label for="replaceNewLocation">New location</label>
+          <input type="text" id="replaceNewLocation" placeholder="e.g. 3CD">
+        </div>
+      </div>
+
+      <div class="relocate-fields" id="fields-add">
+        <div class="field">
+          <label for="addNewLocation">Location to add</label>
+          <input type="text" id="addNewLocation" placeholder="e.g. 3CD">
+        </div>
+      </div>
+
+      <div class="relocate-fields" id="fields-clear">
+        <div class="field">
+          <label for="clearNewLocation">New single location (replaces all)</label>
+          <input type="text" id="clearNewLocation" placeholder="e.g. 3CD">
+        </div>
+      </div>
+
+      <button id="relocateBtn" class="secondary">Update location</button>
+    </div>
   </div>
 
   <div id="message" class="message"></div>
@@ -178,6 +266,7 @@
 
 <script>
   let currentItem = null;
+  let currentLocations = [];
 
   const itemInput = document.getElementById('itemInput');
   const takeInput = document.getElementById('takeInput');
@@ -186,7 +275,12 @@
   const result = document.getElementById('result');
   const resultLocation = document.getElementById('resultLocation');
   const resultQty = document.getElementById('resultQty');
+  const outOfStockBadge = document.getElementById('outOfStockBadge');
   const message = document.getElementById('message');
+  const oldLocationSelect = document.getElementById('oldLocationSelect');
+  const relocateBtn = document.getElementById('relocateBtn');
+  const actionTabs = document.querySelectorAll('.action-tab');
+  let currentAction = 'replace';
 
   function showMessage(text, type) {
     message.textContent = text;
@@ -200,9 +294,26 @@
   function updateResultDisplay(location, qty) {
     resultLocation.textContent = location;
     resultQty.textContent = qty;
-    resultQty.className = 'result-value' + (qty <= 5 ? ' qty-low' : '');
+    const qtyNum = Number(qty);
+    resultQty.className = 'result-value' + (qtyNum <= 5 ? ' qty-low' : '');
+    outOfStockBadge.style.display = qtyNum <= 0 ? 'inline-block' : 'none';
     result.classList.add('show');
+
+    currentLocations = location ? location.split(',').map(l => l.trim()).filter(Boolean) : [];
+    oldLocationSelect.innerHTML = currentLocations
+      .map(loc => `<option value="${loc}">${loc}</option>`)
+      .join('');
   }
+
+  actionTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      actionTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentAction = tab.dataset.action;
+      document.querySelectorAll('.relocate-fields').forEach(f => f.classList.remove('active'));
+      document.getElementById('fields-' + currentAction).classList.add('active');
+    });
+  });
 
   async function lookupItem() {
     const item = itemInput.value.trim();
@@ -266,8 +377,59 @@
     }
   }
 
+  async function relocateItem() {
+    if (!currentItem) return;
+
+    let payload = { item: currentItem, action: currentAction };
+
+    if (currentAction === 'replace') {
+      payload.old_location = oldLocationSelect.value;
+      payload.new_location = document.getElementById('replaceNewLocation').value.trim();
+      if (!payload.new_location) { showMessage('Enter a new location', 'error'); return; }
+    } else if (currentAction === 'add') {
+      payload.new_location = document.getElementById('addNewLocation').value.trim();
+      if (!payload.new_location) { showMessage('Enter a location to add', 'error'); return; }
+    } else if (currentAction === 'clear') {
+      payload.new_location = document.getElementById('clearNewLocation').value.trim();
+      if (!payload.new_location) { showMessage('Enter the new location', 'error'); return; }
+    }
+
+    clearMessage();
+    relocateBtn.disabled = true;
+    relocateBtn.textContent = 'Updating...';
+
+    try {
+      const res = await fetch('/relocate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMessage(data.error || 'Something went wrong', 'error');
+      } else {
+        resultLocation.textContent = data.location;
+        currentLocations = data.location ? data.location.split(',').map(l => l.trim()).filter(Boolean) : [];
+        oldLocationSelect.innerHTML = currentLocations
+          .map(loc => `<option value="${loc}">${loc}</option>`)
+          .join('');
+        document.getElementById('replaceNewLocation').value = '';
+        document.getElementById('addNewLocation').value = '';
+        document.getElementById('clearNewLocation').value = '';
+        showMessage('Location updated to: ' + data.location, 'success');
+      }
+    } catch (err) {
+      showMessage('Could not reach the server', 'error');
+    } finally {
+      relocateBtn.disabled = false;
+      relocateBtn.textContent = 'Update location';
+    }
+  }
+
   lookupBtn.addEventListener('click', lookupItem);
   takeBtn.addEventListener('click', takeItems);
+  relocateBtn.addEventListener('click', relocateItem);
   itemInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupItem(); });
   takeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') takeItems(); });
 </script>
